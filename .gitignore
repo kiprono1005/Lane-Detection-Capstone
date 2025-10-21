@@ -1,3 +1,7 @@
+# Autonomous Lane Keeping Project
+# GitHub: https://github.com/kiprono1005/Lane-Detection-Capstone
+# Keep only code in repository, not data or models
+
 # Python
 __pycache__/
 *.py[cod]

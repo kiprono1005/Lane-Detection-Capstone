@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+ENV/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# PyCharm
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# Data files - DO NOT COMMIT DATASETS
+data/kaggle/
+data/roboflow/
+data/processed/
+data/carla/
+*.csv
+*.json
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.zip
+*.tar.gz
+*.h5
+*.pkl
+*.pickle
+
+# Checkpoints and Models - TOO LARGE
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.weights
+
+# Logs and Results
+logs/
+tensorboard_logs/
+results/
+eda_results/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

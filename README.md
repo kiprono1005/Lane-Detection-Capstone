@@ -16,7 +16,7 @@ This project implements an end-to-end deep learning system for autonomous lane k
 2. **Training a CNN** (PilotNet architecture) to predict steering directly from images
 3. **Achieving strong baseline performance**: 72.4% accuracy within ±3° (1.13° MAE)
 
-**Key Innovation:** Novel geometric algorithm that generates steering angle labels from lane waypoint annotations, enabling training on lane detection datasets without direct steering measurements.
+**Key Innovation:** Geometric algorithm that generates steering angle labels from lane waypoint annotations, enabling training on lane detection datasets without direct steering measurements.
 
 ---
 
@@ -68,7 +68,7 @@ autonomous-lane-keeping/
 
 ```bash
 # Clone repository
-git clone <your-repo-url>
+git clone https://github.com/kiprono1005/Lane-Detection-Capstone.git
 cd autonomous-lane-keeping
 
 # Create virtual environment
@@ -437,33 +437,9 @@ jupyter>=1.0.0
 
 ---
 
-## 📧 Contact
-
-**Kip Chemweno**  
-Virginia Tech  
-ECE 4424 - Machine Learning  
-Fall 2025
-
----
-
-## 🙏 Acknowledgments
-
-- TuSimple for the lane detection dataset
-- NVIDIA for PilotNet architecture
-- CARLA team for simulation platform
-- Course instructors for guidance
-
----
-
-## 📄 License
-
-Educational use only - ECE 4424 Capstone Project
-
----
-
 ## ✨ Key Highlights
 
-- 🎯 **Novel Approach**: First implementation converting TuSimple lane points to steering angles
+- 🎯 **Approach**: First implementation converting TuSimple lane points to steering angles
 - 📊 **Strong Performance**: 72.4% accuracy within ±3° on challenging benchmark
 - 🔬 **Reproducible**: Complete pipeline from raw data to trained model
 - 📚 **Well-Documented**: Clean code with comprehensive documentation

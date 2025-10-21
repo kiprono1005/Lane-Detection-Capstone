@@ -5,7 +5,8 @@
 **Author:** Kip Chemweno  
 **Course:** ECE 4424 - Machine Learning  
 **Institution:** Virginia Tech  
-**Date:** October 2025
+**Date:** October 2025  
+**GitHub Repository:** https://github.com/kiprono1005/Lane-Detection-Capstone
 
 ---
 
@@ -16,7 +17,7 @@ This project implements an end-to-end deep learning system for autonomous lane k
 2. **Training a CNN** (PilotNet architecture) to predict steering directly from images
 3. **Achieving strong baseline performance**: 72.4% accuracy within ±3° (1.13° MAE)
 
-**Key Innovation:** Geometric algorithm that generates steering angle labels from lane waypoint annotations, enabling training on lane detection datasets without direct steering measurements.
+**Key Innovation:** Novel geometric algorithm that generates steering angle labels from lane waypoint annotations, enabling training on lane detection datasets without direct steering measurements.
 
 ---
 
@@ -68,7 +69,7 @@ autonomous-lane-keeping/
 
 ```bash
 # Clone repository
-git clone https://github.com/kiprono1005/Lane-Detection-Capstone.git
+git clone https://github.com/kiprono1005/Lane-Detection-Capstone
 cd autonomous-lane-keeping
 
 # Create virtual environment
@@ -429,17 +430,27 @@ jupyter>=1.0.0
 
 ## 📖 References
 
-[1] TuSimple. (2017). TuSimple Lane Detection Challenge.  
+[1] TuSimple. (2017). TuSimple Lane Detection Challenge. Dataset: https://www.kaggle.com/datasets/manideep1108/tusimple  
 [2] Bojarski, M., et al. (2016). End to end learning for self-driving cars. *arXiv:1604.07316*  
 [3] Dosovitskiy, A., et al. (2017). CARLA: An open urban driving simulator. *CoRL 2017*  
 [4] Hu, C., et al. (2022). Sim-to-Real Domain Adaptation for Lane Detection. *arXiv:2202.07133*  
-[5] Prakash, A., et al. (2019). Structured domain randomization. *ICRA 2019*
+[5] Prakash, A., et al. (2019). Structured domain randomization. *ICRA 2019*  
+[6] Road Mark Detection Dataset. Roboflow Universe: https://universe.roboflow.com/kip-8pf2a/road-mark-trjt6
+
+---
+
+## 🙏 Acknowledgments
+
+- TuSimple for the lane detection dataset
+- NVIDIA for PilotNet architecture
+- CARLA team for simulation platform
+- Course instructors for guidance
 
 ---
 
 ## ✨ Key Highlights
 
-- 🎯 **Approach**: First implementation converting TuSimple lane points to steering angles
+- 🎯 **Novel Approach**: First implementation converting TuSimple lane points to steering angles
 - 📊 **Strong Performance**: 72.4% accuracy within ±3° on challenging benchmark
 - 🔬 **Reproducible**: Complete pipeline from raw data to trained model
 - 📚 **Well-Documented**: Clean code with comprehensive documentation

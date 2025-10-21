@@ -45,7 +45,6 @@ data/carla/
 *.json
 *.jpg
 *.jpeg
-*.png
 *.mp4
 *.avi
 *.zip

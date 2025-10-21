@@ -64,8 +64,6 @@ checkpoints/
 # Logs and Results
 logs/
 tensorboard_logs/
-results/
-eda_results/
 *.log
 
 # OS

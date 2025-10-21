@@ -36,6 +36,7 @@ env/
 .vscode/
 
 # Data files - DO NOT COMMIT DATASETS
+data/
 data/kaggle/
 data/roboflow/
 data/processed/

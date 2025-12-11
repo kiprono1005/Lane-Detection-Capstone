@@ -16,8 +16,6 @@ Three trained models from our comparative study:
 
 ### Option 1: From Google Drive
 
-If the models are too large for GitHub:
-
 1. Visit: [Google Drive Link](https://drive.google.com/drive/folders/1agAfNJEFfjcPRiJlJMiiTSA2wJacuq7l?usp=sharing)
 2. Download `checkpoints.zip`
 3. Extract to `./checkpoints/` directory

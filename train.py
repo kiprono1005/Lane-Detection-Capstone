@@ -1,26 +1,20 @@
 """
 Main Training Script for Autonomous Lane Keeping
-Run this script to train models on processed lane detection data
-
-Usage:
-    # Process data first (if not done)
-    python process_tusimple.py --path ./data/kaggle
-
-    # Then train
-    python train.py --data_source tusimple --epochs 30
-    python train.py --data_source roboflow --epochs 30
-    python train.py --data_source kaggle --epochs 30
+Run this script to train models on processed lane detection data.
 
 Author: Kip Chemweno
 Course: ECE 4424 - Machine Learning
 """
 
 import argparse
-import torch
 import os
+import random
 from pathlib import Path
+import datetime
 
-# Import project modules
+import numpy as np
+import torch
+
 from data_pipeline import create_dataloaders
 from model import PilotNet, SimplifiedPilotNet
 from training import Trainer
@@ -30,196 +24,277 @@ from evaluation import ModelEvaluator
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Train lane keeping model on processed data',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="Train lane-keeping model on processed data",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Data arguments
-    parser.add_argument('--data_source', type=str, default='tusimple',
-                       choices=['tusimple', 'roboflow', 'carla', 'hybrid'],
-                       help='Which dataset to use for training')
-    parser.add_argument('--processed_dir', type=str, default='./data/processed',
-                       help='Directory containing processed data')
+    parser.add_argument(
+        "--data_source",
+        type=str,
+        default="tusimple",
+        choices=["tusimple", "kaggle", "roboflow", "carla", "hybrid"],
+        help="Which dataset to use for training",
+    )
+    parser.add_argument(
+        "--processed_dir",
+        type=str,
+        default="./data/processed",
+        help="Directory containing processed real datasets (tusimple/kaggle/roboflow)",
+    )
 
     # Model arguments
-    parser.add_argument('--model', type=str, default='pilotnet',
-                       choices=['pilotnet', 'simplified'],
-                       help='Model architecture')
-    parser.add_argument('--dropout', type=float, default=0.5,
-                       help='Dropout rate')
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="pilotnet",
+        choices=["pilotnet", "simplified"],
+        help="Model architecture",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.5,
+        help="Dropout rate for fully connected layers",
+    )
 
     # Training arguments
-    parser.add_argument('--epochs', type=int, default=50,
-                       help='Number of training epochs')
-    parser.add_argument('--batch_size', type=int, default=32,
-                       help='Batch size for training')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                       help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-5,
-                       help='Weight decay for optimizer')
-    parser.add_argument('--val_split', type=float, default=0.2,
-                       help='Validation split ratio (if no separate val set)')
-    parser.add_argument('--early_stopping', type=int, default=10,
-                       help='Early stopping patience')
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=30,
+        help="Number of training epochs",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="Batch size for training",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate",
+    )
+    parser.add_argument(
+        "--weight_decay",
+        type=float,
+        default=1e-5,
+        help="Weight decay (L2 regularization)",
+    )
+    parser.add_argument(
+        "--val_split",
+        type=float,
+        default=0.2,
+        help="Validation split ratio (used only if no separate val CSV is provided)",
+    )
+    parser.add_argument(
+        "--early_stopping",
+        type=int,
+        default=10,
+        help="Early stopping patience (epochs without improvement)",
+    )
 
-    # System arguments
-    parser.add_argument('--device', type=str, default='cuda',
-                       choices=['cuda', 'cpu'],
-                       help='Device to train on')
-    parser.add_argument('--num_workers', type=int, default=4,
-                       help='Number of data loading workers')
-    parser.add_argument('--seed', type=int, default=42,
-                       help='Random seed for reproducibility')
-
-    # Output arguments
-    parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints',
-                       help='Directory to save checkpoints')
-    parser.add_argument('--log_dir', type=str, default='./logs',
-                       help='Directory for tensorboard logs')
-    parser.add_argument('--experiment_name', type=str, default=None,
-                       help='Experiment name (auto-generated if not provided)')
+    # System / logging arguments
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        choices=["cuda", "cpu"],
+        help="Device to use for training",
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=4,
+        help="Number of worker processes for data loading",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default="./checkpoints",
+        help="Base directory for saving model checkpoints",
+    )
+    parser.add_argument(
+        "--log_dir",
+        type=str,
+        default="./logs",
+        help="Base directory for TensorBoard logs",
+    )
+    parser.add_argument(
+        "--experiment_name",
+        type=str,
+        default=None,
+        help="Name for this training experiment (auto-generated if not set)",
+    )
 
     return parser.parse_args()
 
 
-def set_seed(seed: int):
-    """Set random seeds for reproducibility."""
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    import numpy as np
-    import random
+def set_seed(seed: int = 42):
+    """Set random seed for reproducibility."""
     np.random.seed(seed)
     random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
 
 def get_data_paths(processed_dir: str, data_source: str):
-    """Get paths to processed data based on source."""
+    """
+    Return a simple dict with the correct image directory and CSV paths
+    for the chosen data source.
+    """
     processed_dir = Path(processed_dir)
 
-    if data_source == 'kaggle':
+    if data_source == "tusimple":
         return {
-            'images_dir': str(processed_dir / 'kaggle_images'),
-            'train_csv': str(processed_dir / 'kaggle_train_steering.csv'),
-            'val_csv': str(processed_dir / 'kaggle_val_steering.csv')
+            "images_dir": str(processed_dir / "tusimple_images"),
+            "train_csv": str(processed_dir / "tusimple_train_steering.csv"),
+            "val_csv": str(processed_dir / "tusimple_val_steering.csv"),
         }
-    elif data_source == 'roboflow':
+    elif data_source == "kaggle":
+        # Assumes you've processed Kaggle TuSimple into the same format
         return {
-            'images_dir': str(processed_dir / 'roboflow_images'),
-            'train_csv': str(processed_dir / 'roboflow_train_steering.csv'),
-            'val_csv': str(processed_dir / 'roboflow_valid_steering.csv')
+            "images_dir": str(processed_dir / "kaggle_images"),
+            "train_csv": str(processed_dir / "kaggle_train_steering.csv"),
+            "val_csv": str(processed_dir / "kaggle_val_steering.csv"),
         }
-    elif data_source == 'tusimple':
+    elif data_source == "roboflow":
         return {
-            'images_dir': str(processed_dir / 'tusimple_images'),
-            'train_csv': str(processed_dir / 'tusimple_train_steering.csv'),
-            'val_csv': str(processed_dir / 'tusimple_val_steering.csv')
+            "images_dir": str(processed_dir / "roboflow_images"),
+            "train_csv": str(processed_dir / "roboflow_train_steering.csv"),
+            "val_csv": str(processed_dir / "roboflow_valid_steering.csv"),
         }
-    elif data_source == 'both':
-        # For 'both', we'll need to modify data_pipeline to handle multiple sources
+    elif data_source == "carla":
+        carla_dir = Path("./data/carla")
         return {
-            'kaggle_images': str(processed_dir / 'kaggle_images'),
-            'kaggle_train_csv': str(processed_dir / 'kaggle_train_steering.csv'),
-            'kaggle_val_csv': str(processed_dir / 'kaggle_val_steering.csv'),
-            'roboflow_images': str(processed_dir / 'roboflow_images'),
-            'roboflow_train_csv': str(processed_dir / 'roboflow_train_steering.csv'),
-            'roboflow_val_csv': str(processed_dir / 'roboflow_valid_steering.csv')
+            "images_dir": str(carla_dir / "images"),
+            "train_csv": str(carla_dir / "carla_steering.csv"),
+            "val_csv": None,  # will be created via random split
         }
+    elif data_source == "hybrid":
+        hybrid_dir = Path("./data/hybrid")
+        return {
+            "images_dir": str(hybrid_dir / "hybrid_images"),
+            "train_csv": str(hybrid_dir / "hybrid_train_steering.csv"),
+            "val_csv": str(hybrid_dir / "hybrid_val_steering.csv"),
+        }
+    else:
+        raise ValueError(f"Unknown data source: {data_source}")
 
 
 def main():
-    """Main training function."""
     args = parse_args()
-
-    # Set random seed
     set_seed(args.seed)
 
-    # Auto-generate experiment name if not provided
+    # Experiment name
     if args.experiment_name is None:
-        import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         args.experiment_name = f"{args.model}_{args.data_source}_{timestamp}"
 
-    print(f"\n{'='*80}")
-    print(f"AUTONOMOUS LANE KEEPING TRAINING")
-    print(f"{'='*80}")
+    # Device
+    if args.device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but not available, falling back to CPU.")
+        device = torch.device("cpu")
+    else:
+        device = torch.device(args.device)
+
+    print("=" * 80)
+    print("AUTONOMOUS LANE KEEPING TRAINING")
+    print("=" * 80)
     print(f"Experiment: {args.experiment_name}")
     print(f"Data source: {args.data_source}")
     print(f"Model: {args.model}")
-    print(f"Device: {args.device}")
-    print(f"{'='*80}\n")
+    print(f"Device: {device}")
+    print("=" * 80)
 
-    # Check device availability
-    if args.device == 'cuda' and not torch.cuda.is_available():
-        print("⚠️  CUDA not available, falling back to CPU")
-        args.device = 'cpu'
-
-    if args.device == 'cuda':
+    if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB\n")
+        mem_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print(f"GPU Memory: {mem_gb:.2f} GB\n")
+    else:
+        print("Using CPU\n")
 
-    # Get data paths
+    # Resolve data paths
     data_paths = get_data_paths(args.processed_dir, args.data_source)
 
-    # Check if processed data exists
+    # Basic existence checks for images and train CSV
     print("Checking for processed data...")
-    if args.data_source in ['kaggle', 'roboflow', 'tusimple']:
-        train_csv_path = Path(data_paths['train_csv'])
-        images_dir_path = Path(data_paths['images_dir'])
+    train_csv_path = Path(data_paths["train_csv"])
+    images_dir_path = Path(data_paths["images_dir"])
 
-        if not train_csv_path.exists():
-            print(f"\n✗ ERROR: Processed data not found!")
-            print(f"  Missing: {train_csv_path}")
-            print(f"\nYou need to process the data first:")
+    if not train_csv_path.exists():
+        print("\n✗ ERROR: Training CSV not found!")
+        print(f"  Expected: {train_csv_path}")
+        return
 
-            if args.data_source == 'tusimple':
-                print(f"  python process_tusimple.py --path ./data/kaggle")
-            elif args.data_source == 'kaggle':
-                print(f"  python lane_to_steering.py --dataset kaggle --path ./data/kaggle --splits train val")
-            elif args.data_source == 'roboflow':
-                print(f"  python lane_to_steering.py --dataset roboflow --path ./data/roboflow --splits train valid")
+    if not images_dir_path.exists():
+        print("\n✗ ERROR: Images directory not found!")
+        print(f"  Expected: {images_dir_path}")
+        return
 
-            return
+    print("✓ Processed data found")
 
-        if not images_dir_path.exists():
-            print(f"\n✗ ERROR: Images directory not found!")
-            print(f"  Missing: {images_dir_path}")
-            return
-
-        # Count images
-        num_images = len(list(images_dir_path.glob('*.jpg'))) + len(list(images_dir_path.glob('*.png')))
-        print(f"✓ Found {num_images} images in {images_dir_path}")
-        print(f"✓ Found train CSV: {train_csv_path}")
-
-    print("✓ Processed data found\n")
-
-    # Create data loaders
+    # Create dataloaders
     print("Loading datasets...")
     try:
-        if args.data_source == 'both':
-            print("⚠️  'both' mode not yet implemented in data_pipeline.py")
-            print("   Please use --data_source tusimple, kaggle, or roboflow")
-            return
-        else:
+        if args.data_source == "carla":
+            # Carla-only training
             dataloaders = create_dataloaders(
-                real_data_dir=data_paths['images_dir'],
-                real_csv=data_paths['train_csv'],
+                real_data_dir=str(images_dir_path),  # unused when training_mode='carla'
+                real_csv=str(train_csv_path),
+                carla_data_dir=str(images_dir_path),
+                carla_csv=str(train_csv_path),
                 batch_size=args.batch_size,
                 val_split=args.val_split,
                 num_workers=args.num_workers,
-                training_mode='real'  # Using 'real' mode for all processed data
+                training_mode="carla",
             )
+        else:
+            val_csv = data_paths.get("val_csv", None)
+            if val_csv is not None:
+                # Use existing train/val CSV split
+                dataloaders = create_dataloaders(
+                    real_data_dir=str(images_dir_path),
+                    real_csv=str(train_csv_path),
+                    real_val_csv=str(val_csv),
+                    batch_size=args.batch_size,
+                    val_split=args.val_split,
+                    num_workers=args.num_workers,
+                    training_mode="real",
+                )
+            else:
+                # Fall back to random split
+                dataloaders = create_dataloaders(
+                    real_data_dir=str(images_dir_path),
+                    real_csv=str(train_csv_path),
+                    batch_size=args.batch_size,
+                    val_split=args.val_split,
+                    num_workers=args.num_workers,
+                    training_mode="real",
+                )
+
         print("✓ Datasets loaded successfully\n")
     except Exception as e:
         print(f"✗ Error loading datasets: {e}")
         import traceback
+
         traceback.print_exc()
         return
 
-    # Create model
+    # Build model
     print("Initializing model...")
-    if args.model == 'pilotnet':
+    if args.model == "pilotnet":
         model = PilotNet(dropout_rate=args.dropout)
     else:
         model = SimplifiedPilotNet(dropout_rate=args.dropout)
@@ -227,77 +302,67 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     print(f"✓ Model created: {num_params:,} parameters\n")
 
-    # Create trainer
+    # Create Trainer (match training.Trainer __init__ exactly)
     trainer = Trainer(
         model=model,
-        train_loader=dataloaders['train'],
-        val_loader=dataloaders['val'],
-        device=args.device,
+        train_loader=dataloaders["train"],
+        val_loader=dataloaders["val"],
+        device=str(device),
         learning_rate=args.lr,
         weight_decay=args.weight_decay,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
-        experiment_name=args.experiment_name
+        experiment_name=args.experiment_name,
     )
 
     # Train
     print("Starting training...\n")
-    try:
-        trainer.train(
-            num_epochs=args.epochs,
-            early_stopping_patience=args.early_stopping
-        )
-    except KeyboardInterrupt:
-        print("\n\nTraining interrupted by user!")
-        print("Saving current model state...")
-        trainer.save_checkpoint('interrupted_model.pth', {})
-        print("✓ Model saved")
-    except Exception as e:
-        print(f"\n✗ Training error: {e}")
-        import traceback
-        traceback.print_exc()
-        return
+    trainer.train(num_epochs=args.epochs, early_stopping_patience=args.early_stopping)
 
-    # Evaluate best model
-    print("\n" + "="*80)
-    print("EVALUATING BEST MODEL ON VALIDATION SET")
-    print("="*80 + "\n")
+    # After training, load best model if it exists
+    exp_dir = Path(args.checkpoint_dir) / args.experiment_name
+    best_model_path = exp_dir / "best_model.pth"
+    if best_model_path.exists():
+        print(f"\nLoading best model from: {best_model_path}")
+        trainer.load_checkpoint(str(best_model_path))
+    else:
+        print("\nWarning: best_model.pth not found, using final model weights.")
 
-    # Load best checkpoint
-    best_checkpoint = trainer.checkpoint_dir / 'best_model.pth'
-    if best_checkpoint.exists():
-        print(f"Loading best model from {best_checkpoint}")
-        trainer.load_checkpoint(str(best_checkpoint))
+    # Final evaluation on validation set
+    print("\nEvaluating model on validation set...")
+    evaluator = ModelEvaluator(trainer.model, device=str(device))
+    metrics, predictions, targets = evaluator.evaluate_on_loader(dataloaders["val"])
 
-        # Evaluate
-        evaluator = ModelEvaluator(model, args.device)
-        metrics, predictions, targets = evaluator.evaluate_on_loader(dataloaders['val'])
-        evaluator.print_metrics(metrics, "Validation")
+    print("\nValidation metrics:")
+    print(f"  MAE:          {metrics['mae']:.6f}")
+    print(f"  RMSE:         {metrics['rmse']:.6f}")
+    print(f"  R^2 Score:    {metrics['r2_score']:.6f}")
+    print(f"  MAPE:         {metrics['mape']:.2f}%")
+    print(f"  Acc @5deg:    {metrics['accuracy_5deg']:.2f}%")
+    print(f"  Acc @10deg:   {metrics['accuracy_10deg']:.2f}%")
+    print(f"  N samples:    {metrics['n_samples']}")
 
-        # Create visualizations
-        results_dir = Path('./results') / args.experiment_name
-        results_dir.mkdir(parents=True, exist_ok=True)
+    # Save a small summary next to checkpoints
+    results_file = exp_dir / "results.txt"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    with open(results_file, "w") as f:
+        f.write("TRAINING RESULTS SUMMARY\n")
+        f.write("=" * 40 + "\n\n")
+        f.write(f"Experiment: {args.experiment_name}\n")
+        f.write(f"Data source: {args.data_source}\n")
+        f.write(f"Model: {args.model}\n")
+        f.write(f"Device: {device}\n\n")
+        f.write(f"Best model path: {best_model_path}\n\n")
+        f.write(f"Validation MAE: {metrics['mae']:.6f}\n")
+        f.write(f"Validation RMSE: {metrics['rmse']:.6f}\n")
+        f.write(f"R^2 Score: {metrics['r2_score']:.6f}\n")
+        f.write(f"MAPE: {metrics['mape']:.2f}%\n")
+        f.write(f"Accuracy @5deg: {metrics['accuracy_5deg']:.2f}%\n")
+        f.write(f"Accuracy @10deg: {metrics['accuracy_10deg']:.2f}%\n")
+        f.write(f"N samples: {metrics['n_samples']}\n")
 
-        evaluator.plot_predictions(
-            predictions,
-            targets,
-            save_path=str(results_dir / 'predictions.png'),
-            dataset_name='Validation'
-        )
-
-        evaluator.analyze_error_by_steering_range(predictions, targets)
-
-        print(f"\n✓ Results saved to {results_dir}")
-
-    print("\n" + "="*80)
-    print("TRAINING COMPLETE!")
-    print("="*80)
-    print(f"\nExperiment: {args.experiment_name}")
-    print(f"Checkpoints: {trainer.checkpoint_dir}")
-    print(f"Logs: {args.log_dir}/{args.experiment_name}")
-    print(f"\nTo view training progress:")
-    print(f"  tensorboard --logdir={args.log_dir}/{args.experiment_name}")
-    print("\n")
+    print(f"\n✓ Results saved to: {results_file}")
+    print("\nTRAINING COMPLETE.\n")
 
 
 if __name__ == "__main__":

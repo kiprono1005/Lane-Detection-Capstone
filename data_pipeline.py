@@ -164,18 +164,24 @@ def create_dataloaders(real_data_dir: str,
                        batch_size: int = 32,
                        val_split: float = 0.2,
                        num_workers: int = 4,
-                       training_mode: str = 'real') -> dict:
+                       training_mode: str = 'real',
+                       real_val_csv: Optional[str] = None,
+                       carla_val_csv: Optional[str] = None) -> dict:
     """
     Create dataloaders for different training scenarios.
-    
+
     Args:
+        real_data_dir: Directory with real images
+        real_csv: Training CSV for real data
+        real_val_csv: Optional separate validation CSV for real data
         training_mode: 'real', 'carla', or 'hybrid'
-    
+        val_split: Validation split ratio (used only if no val_csv provided)
+
     Returns:
         Dictionary with train and validation dataloaders
     """
     from torchvision import transforms
-    
+
     # Define transforms
     transform = transforms.Compose([
         transforms.ToPILImage(),
@@ -183,48 +189,117 @@ def create_dataloaders(real_data_dir: str,
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
-    
-    datasets_list = []
-    
-    if training_mode in ['real', 'hybrid']:
-        real_dataset = DrivingDataset(
-            real_data_dir, 
-            real_csv, 
-            transform=transform,
-            augment=True,
-            data_source='real'
-        )
-        datasets_list.append(real_dataset)
-    
-    if training_mode in ['carla', 'hybrid']:
-        if carla_data_dir is None or carla_csv is None:
-            raise ValueError("CARLA data paths required for 'carla' or 'hybrid' mode")
-        
-        carla_dataset = DrivingDataset(
-            carla_data_dir,
-            carla_csv,
-            transform=transform,
-            augment=True,
-            data_source='carla'
-        )
-        datasets_list.append(carla_dataset)
-    
-    # Combine datasets if hybrid
-    if len(datasets_list) > 1:
-        full_dataset = torch.utils.data.ConcatDataset(datasets_list)
+
+    # Check if we have separate validation CSVs
+    has_separate_val = (real_val_csv is not None) or (carla_val_csv is not None)
+
+    if has_separate_val:
+        # Use provided train/val split
+        train_datasets = []
+        val_datasets = []
+
+        if training_mode in ['real', 'hybrid']:
+            train_datasets.append(DrivingDataset(
+                real_data_dir,
+                real_csv,
+                transform=transform,
+                augment=True,
+                data_source='real'
+            ))
+
+            if real_val_csv:
+                val_datasets.append(DrivingDataset(
+                    real_data_dir,
+                    real_val_csv,
+                    transform=transform,
+                    augment=False,  # No augmentation on validation
+                    data_source='real'
+                ))
+
+        if training_mode in ['carla', 'hybrid']:
+            if carla_data_dir is None or carla_csv is None:
+                raise ValueError("CARLA data paths required for 'carla' or 'hybrid' mode")
+
+            train_datasets.append(DrivingDataset(
+                carla_data_dir,
+                carla_csv,
+                transform=transform,
+                augment=True,
+                data_source='carla'
+            ))
+
+            if carla_val_csv:
+                val_datasets.append(DrivingDataset(
+                    carla_data_dir,
+                    carla_val_csv,
+                    transform=transform,
+                    augment=False,
+                    data_source='carla'
+                ))
+
+        # Combine datasets
+        if len(train_datasets) > 1:
+            train_dataset = torch.utils.data.ConcatDataset(train_datasets)
+        else:
+            train_dataset = train_datasets[0]
+
+        if len(val_datasets) > 1:
+            val_dataset = torch.utils.data.ConcatDataset(val_datasets)
+        elif len(val_datasets) == 1:
+            val_dataset = val_datasets[0]
+        else:
+            # No val CSV provided, split from train
+            train_size = int((1 - val_split) * len(train_dataset))
+            val_size = len(train_dataset) - train_size
+            train_dataset, val_dataset = torch.utils.data.random_split(
+                train_dataset,
+                [train_size, val_size],
+                generator=torch.Generator().manual_seed(42)
+            )
+
     else:
-        full_dataset = datasets_list[0]
-    
-    # Split into train and validation
-    train_size = int((1 - val_split) * len(full_dataset))
-    val_size = len(full_dataset) - train_size
-    
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset, 
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    
+        # Original behavior: combine all data then split
+        datasets_list = []
+
+        if training_mode in ['real', 'hybrid']:
+            real_dataset = DrivingDataset(
+                real_data_dir,
+                real_csv,
+                transform=transform,
+                augment=True,
+                data_source='real'
+            )
+            datasets_list.append(real_dataset)
+
+        if training_mode in ['carla', 'hybrid']:
+            if carla_data_dir is None or carla_csv is None:
+                raise ValueError("CARLA data paths required for 'carla' or 'hybrid' mode")
+
+            carla_dataset = DrivingDataset(
+                carla_data_dir,
+                carla_csv,
+                transform=transform,
+                augment=True,
+                data_source='carla'
+            )
+            datasets_list.append(carla_dataset)
+
+        # Combine datasets if hybrid
+        if len(datasets_list) > 1:
+            full_dataset = torch.utils.data.ConcatDataset(datasets_list)
+        else:
+            full_dataset = datasets_list[0]
+
+        # Split into train and validation
+        train_size = int((1 - val_split) * len(full_dataset))
+        val_size = len(full_dataset) - train_size
+
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            full_dataset,
+            [train_size, val_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
@@ -233,7 +308,7 @@ def create_dataloaders(real_data_dir: str,
         num_workers=num_workers,
         pin_memory=True
     )
-    
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -241,10 +316,10 @@ def create_dataloaders(real_data_dir: str,
         num_workers=num_workers,
         pin_memory=True
     )
-    
+
     print(f"Training samples: {len(train_dataset)}")
     print(f"Validation samples: {len(val_dataset)}")
-    
+
     return {
         'train': train_loader,
         'val': val_loader

@@ -4,7 +4,7 @@ This document explains how to obtain and use the trained model checkpoints for t
 
 ## 📦 Available Models
 
-Three trained models from our comparative study:
+Three trained models from the comparative study:
 
 | Model Name | Description | Test Accuracy (±3°) | MAE | File Size |
 |------------|-------------|---------------------|-----|-----------|

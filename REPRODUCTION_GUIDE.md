@@ -354,7 +354,7 @@ python train.py --data_source tusimple --num_workers 0
 ### Issue: Different results than paper
 
 **Possible causes:**
-1. Different random seed (we use seed=42)
+1. Different random seed (seed=42 was used)
 2. Different PyTorch/CUDA version
 3. Different data split
 

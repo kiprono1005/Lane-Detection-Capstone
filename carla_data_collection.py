@@ -274,7 +274,7 @@ class WaypointFollowingCollector:
         image_filename = f"carla_{self.frame_count:06d}.jpg"
         image_path = self.images_dir / image_filename
 
-        image_bgr = cv2.cvtColor(self.current_image, cv2.COLOR_RGB2BGR)
+        image_bgr = self.current_image
         cv2.imwrite(str(image_path), image_bgr)
 
         self.data_records.append({

@@ -1,376 +1,205 @@
-# Quick Reproduction Guide
+# Reproduction Guide
 
-**Expected Time:** 2-3 hours (including data download and training)
+Step by step, from a fresh clone to the results table in the README.
+
+> **Updated November 2026.** The original version of this guide listed "expected outputs" (real 72.4%, CARLA 59.1%, hybrid 90.0%) that came from a flawed evaluation and could not be reproduced. The expected results below come from `eval_clean.py` on TuSimple's official test set. Your exact numbers will differ slightly with seed, data and software versions; what should reproduce is the ranking.
+
+**Time:** about 2–3 hours with a GPU, plus another 1–2 hours if you collect CARLA data.
 
 ---
 
 ## Prerequisites
 
-- Python 3.9+
-- CUDA-capable GPU (8GB+ VRAM recommended)
-- 50GB free disk space
-- Internet connection
+- Python 3.10–3.12
+- NVIDIA GPU with 8GB+ VRAM recommended. RTX 50-series cards need a PyTorch build for CUDA 12.8 or newer.
+- About 50GB free disk space
 
 ---
 
-## Step 1: Environment Setup (5 minutes)
+## Step 1: Environment (5 minutes)
 
 ```bash
-# Clone repository
 git clone https://github.com/kiprono1005/Lane-Detection-Capstone.git
 cd Lane-Detection-Capstone
 
-# Create and activate virtual environment
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# OR
-venv\Scripts\activate  # Windows
+source venv/bin/activate   # Linux/Mac
+venv\Scripts\activate      # Windows
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Verify installation
 python test_setup.py
 ```
 
-**Expected Output:**
+Check that PyTorch can see your GPU before training:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
-✓ Python 3.9.x
-✓ All packages installed
-✓ CUDA available (or CPU fallback)
-✓ Model creation successful
+
+If it prints `+cpu`, `None`, or `False`, reinstall PyTorch from the CUDA index, for example:
+
+```bash
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
 ---
 
-## Step 2: Download TuSimple Dataset (10-15 minutes)
-
-### Option A: Kaggle API (Faster)
+## Step 2: Download TuSimple (10–30 minutes)
 
 ```bash
-pip install kaggle
-
-# Setup credentials: https://www.kaggle.com/docs/api
-# Place kaggle.json in ~/.kaggle/ (or %USERPROFILE%\.kaggle\ on Windows)
-
 kaggle datasets download -d manideep1108/tusimple
 unzip tusimple.zip -d ./data/kaggle
 ```
 
-### Option B: Manual Download
+Or download manually from [Kaggle](https://www.kaggle.com/datasets/manideep1108/tusimple) and extract to `./data/kaggle/`.
 
-1. Go to https://www.kaggle.com/datasets/manideep1108/tusimple
-2. Download dataset
-3. Extract to `./data/kaggle/`
+You need both parts:
 
-**Verify:**
-```bash
-ls ./data/kaggle/train_set/
-# Should show: clips/, label_data_0313.json, label_data_0531.json, label_data_0601.json
-```
+- `train_set/` with `clips/` and `label_data_0313.json`, `label_data_0531.json`, `label_data_0601.json` (training)
+- `test_set/clips/` and `test_label.json` (evaluation only)
+
+If the archive extracts into a `TUSimple` subfolder, use that folder wherever this guide says `./data/kaggle`.
 
 ---
 
-## Step 3: Process TuSimple Data (5 minutes)
+## Step 3: Process TuSimple (5 minutes)
 
 ```bash
 python process_tusimple.py --path ./data/kaggle
 ```
 
-**Expected Output:**
-```
-PROCESSING TUSIMPLE TRAINING SET
-======================================================================
-  Processing: label_data_0313.json
-    Found 3626 annotations
-    ✓ Processed: 3626, Skipped: 0
-
-RESULTS
-======================================================================
-✓ Total samples processed: 3,626
-✓ Training samples: 2,901
-✓ Validation samples: 725
-
-TRAINING SET STATISTICS
-----------------------------------------------------------------------
-Samples: 2,901
-Steering Angle:
-  Mean:   0.0014 rad  ( 0.08°)
-  Std:    0.0876 rad  ( 5.02°)
-  
-Steering Distribution:
-  Straight:  2,197  (75.7%)
-  Turns:       704  (24.3%)
-```
+This converts lane points to steering labels and writes `./data/processed/`: 3,626 labeled frames, shuffled with seed 42 and split 80/20 into about 2,900 training and 725 validation frames.
 
 ---
 
-## Step 4A: Train Real-World Model (18 minutes)
+## Step 4: Train the Real-Only Model (~20 minutes per seed)
 
 ```bash
-python train.py \
-  --data_source tusimple \
-  --epochs 30 \
-  --batch_size 32 \
-  --num_workers 0 \
-  --experiment_name reproduce_real
+python train.py --data_source tusimple --num_workers 0 --seed 42 --experiment_name pilotnet_tusimple_s42
+python train.py --data_source tusimple --num_workers 0 --seed 1  --experiment_name pilotnet_tusimple_s1
 ```
 
-**Expected Final Output:**
-```
-Epoch 18/30
-Train Loss: 0.0384 | Train MAE: 0.0876
-Val Loss: 0.0512 | Val MAE: 0.0876
-✓ Validation improved: 0.0520 → 0.0512
-
-Early stopping triggered after 18 epochs
-Training completed in 18.3 minutes
-Best validation loss: 0.0512
-
-Validation metrics:
-  MAE:          0.0876 rad (5.02°)
-  Accuracy ±3°: 72.4%
-  Accuracy ±6°: 89.1%
-  R² Score:     0.7234
-```
+One seed is enough to reproduce the main result; two show how much a retrain moves it.
 
 ---
 
-## Step 4B: Obtain CARLA Data
+## Step 5: Collect CARLA Data (optional, 1–2 hours)
+
+Requires **CARLA 0.9.16** (Unreal Engine 4). CARLA 0.10.x does not include Town01–05, which the collector uses.
 
 ```bash
-# Install CARLA 0.9.16 from https://github.com/carla-simulator/carla/releases
+pip install carla==0.9.16    # must match the server version exactly
 
-# Start CARLA server
-./CarlaUE4.exe  # Windows
-# OR
-./CarlaUE4.sh  # Linux
+# Start the server and wait for the town to load
+CarlaUE4.exe     # Windows
+./CarlaUE4.sh    # Linux
 
-# In separate terminal, collect data
+# Separate terminal
 python carla_data_collection.py --samples 3000 --output ./data/carla
 ```
 
+Always pass `--output`; the script's default path points to the author's machine. Spot-check a few images in `./data/carla/images`: the sky should look blue. If it looks orange or brown, you have a version of the collector from before the color fix.
+
 ---
 
-## Step 4C: Train CARLA Model (22 minutes)
+## Step 6: Train the CARLA and Mixed Models (~20–70 minutes each)
 
 ```bash
-python train.py \
-  --data_source carla \
-  --epochs 30 \
-  --batch_size 32 \
-  --num_workers 0 \
-  --experiment_name reproduce_carla
+# CARLA only
+python train.py --data_source carla --num_workers 0 --experiment_name pilotnet_carla_v2
+
+# 50/50: 1,500 real + 1,500 CARLA, same total size as real-only
+python create_hybrid_dataset.py --mode equal --total_samples 3000
+python train.py --data_source hybrid --num_workers 0 --experiment_name pilotnet_hybrid_v2
+
+# All real + all CARLA. Writes to ./data/hybrid, so keep the 50/50 copy first:
+#   Windows:   Rename-Item data\hybrid hybrid_equal
+#   Linux/Mac: mv data/hybrid data/hybrid_equal
+python create_hybrid_dataset.py --mode augment
+python train.py --data_source hybrid --num_workers 0 --experiment_name pilotnet_hybrid_augment
 ```
 
-**Expected Final Output:**
-```
-Epoch 22/30
-Train Loss: 0.0156 | Train MAE: 0.0506
-Val Loss: 0.0982 | Val MAE: 0.0506
-✓ Validation improved
-
-Training completed in 22.8 minutes
-
-Validation metrics (on TuSimple test set):
-  MAE:          0.0506 rad (2.90°)
-  Accuracy ±3°: 59.1%
-  Accuracy ±6°: 88.4%
-  R² Score:     0.5891
-```
+The "Best validation loss" printed at the end of the CARLA run will look very low. It's measured on CARLA's own random split, where frames a tenth of a second apart land on both sides, so don't treat it as a result.
 
 ---
 
-## Step 4D: Create and Train Hybrid Model (20 minutes)
+## Step 7: Evaluate (a few minutes per run)
 
 ```bash
-# Create hybrid dataset
-python create_hybrid_dataset.py \
-  --mode equal \
-  --total_samples 3000 \
-  --real ./data/processed \
-  --carla ./data/carla \
-  --output ./data/hybrid
+python eval_clean.py \
+  --ckpt_real   checkpoints/pilotnet_tusimple_s42/best_model.pth \
+  --ckpt_carla  checkpoints/pilotnet_carla_v2/best_model.pth \
+  --ckpt_hybrid checkpoints/pilotnet_hybrid_v2/best_model.pth \
+  --out results/clean_eval_v2
 
-# Train hybrid model
-python train.py \
-  --data_source hybrid \
-  --epochs 30 \
-  --batch_size 32 \
-  --num_workers 0 \
-  --experiment_name reproduce_hybrid
+python eval_clean.py \
+  --ckpt_real   checkpoints/pilotnet_tusimple_s42/best_model.pth \
+  --ckpt_carla  checkpoints/pilotnet_carla_v2/best_model.pth \
+  --ckpt_hybrid checkpoints/pilotnet_hybrid_augment/best_model.pth \
+  --out results/clean_eval_augment
 ```
 
-**Expected Final Output:**
-```
-Epoch 16/30
-Train Loss: 0.0098 | Train MAE: 0.0250
-Val Loss: 0.0231 | Val MAE: 0.0250
-✓ Validation improved
+The output's opening line should read `TuSimple official test set: 2782 labeled frames`. If it says it fell back to the validation split, the script couldn't find `test_label.json` and `test_set/clips`; pass `--tusimple_root` pointing at the folder that contains them.
 
-Training completed in 16.7 minutes
-
-Validation metrics (on TuSimple test set):
-  MAE:          0.0250 rad (1.43°)
-  Accuracy ±3°: 90.0%
-  Accuracy ±6°: 97.8%
-  R² Score:     0.9000
-```
+Each run saves `summary.csv`, `predictions.csv` and `run_info.json` to its `--out` folder. The hybrid row is labeled "Hybrid 50/50" whichever hybrid checkpoint you pass.
 
 ---
 
-## Step 5: Compare All Models (2 minutes)
+## Expected Results
 
-```bash
-python compare_all_models.py
-```
+TuSimple official test set, 2,782 frames. These are the author's November 2026 numbers.
 
-**Expected Output:**
+| Model | MAE | Within ±3° |
+|---|---|---|
+| Real only (seed 1 / seed 42) | 1.15° / 1.23° | 93.7% / 92.9% |
+| Real + all CARLA v2 | 1.30° | 91.8% |
+| 50/50 real + CARLA v2 | 1.66° | 84.5% |
+| CARLA v2 only | 2.22° | 70.7% |
+| Baseline: always predict the mean | 1.94° | 78.3% |
+| Baseline: always predict straight | 2.23° | 70.7% |
 
-```
-THREE-MODEL COMPREHENSIVE COMPARISON
-================================================================================
+**What should reproduce:**
 
-Loading Real (TuSimple) model from ./checkpoints/reproduce_real/best_model.pth
-✓ Loaded Real (TuSimple) (epoch 16)
+1. Real-only is best, clearly below both baselines.
+2. The 50/50 mix is roughly 0.4–0.5° worse than real-only, with a 95% interval that excludes zero.
+3. CARLA-only lands at about the "always straight" baseline.
+4. Adding CARLA on top of all the real data gives no meaningful gain. The gap is small (0.07–0.15° in the author's runs), about the same size as the 0.08° difference between two real-only seeds.
 
-Loading CARLA (Synthetic) model from ./checkpoints/reproduce_carla/best_model.pth
-✓ Loaded CARLA (Synthetic) (epoch 19)
-
-Loading Hybrid model from ./checkpoints/reproduce_hybrid/best_model.pth
-✓ Loaded Hybrid (epoch 14)
-
-Evaluating Real (TuSimple)...
-✓ Real (TuSimple) MAE: 0.0876 rad (5.02°)
-✓ Real (TuSimple) Accuracy (±3°): 72.4%
-
-Evaluating CARLA (Synthetic)...
-✓ CARLA (Synthetic) MAE: 0.0506 rad (2.90°)
-✓ CARLA (Synthetic) Accuracy (±3°): 59.1%
-
-Evaluating Hybrid...
-✓ Hybrid MAE: 0.0250 rad (1.43°)
-✓ Hybrid Accuracy (±3°): 90.0%
-
-MODEL COMPARISON TABLE
-================================================================================
-Model                MAE (rad)  MAE (°)  RMSE    R² Score  Acc ±3°  Acc ±6°  Samples
-Real (TuSimple)      0.0876     5.02     0.1520  0.7234    72.4%    89.1%    725
-CARLA (Synthetic)    0.0506     2.90     0.0982  0.5891    59.1%    88.4%    725
-Hybrid               0.0250     1.43     0.0512  0.9000    90.0%    97.8%    725
-
-✓ COMPARISON COMPLETE!
-
-All results saved to: ./results/three_model_comparison/
-
-Generated files:
-  - model_comparison_table.csv
-  - metrics_comparison.png
-  - prediction_scatter_comparison.png
-  - error_distributions.png
-  - final_report_comprehensive_figure.png
-  - comparison_summary.txt
-```
-
----
-
-## Step 6: View Results
-
-Results are saved in `./results/three_model_comparison/`:
-
-```bash
-# View comparison table
-cat ./results/three_model_comparison/model_comparison_table.csv
-
-# View summary
-cat ./results/three_model_comparison/comparison_summary.txt
-
-# Open visualizations (use your system's image viewer)
-# metrics_comparison.png - Bar charts of all metrics
-# prediction_scatter_comparison.png - Scatter plots
-# final_report_comprehensive_figure.png - Full comparison figure
-```
-
----
-
-## Expected Results Summary
-
-If you've successfully reproduced results, you should see:
-
-| Model | Accuracy ±3° | MAE (°) | Improvement over Real |
-|-------|--------------|---------|----------------------|
-| Real (TuSimple) | 72.4% | 5.02° | Baseline |
-| CARLA (Synthetic) | 59.1% | 2.90° | -18.4% (worse) |
-| **Hybrid** | **90.0%** | **1.43°** | **+24.3%** ✓ |
-
-**Key Findings:**
-1. ✓ Hybrid model achieves best performance (90.0% accuracy)
-2. ✓ 24.3% improvement over real-only baseline
-3. ✓ CARLA-only shows sim-to-real gap (59.1% accuracy)
-4. ✓ Synthetic data effectively augments real data
+If your seed-42 real-only run lands well away from 1.23°, check your PyTorch version and that `process_tusimple.py` processed all 3,626 frames.
 
 ---
 
 ## Monitoring Training (Optional)
 
-While models are training, monitor progress:
-
 ```bash
-# In separate terminal
 tensorboard --logdir=./logs
-
-# Open http://localhost:6006 in browser
 ```
-
-View real-time:
-- Training/validation loss curves
-- MAE progression
-- Learning rate schedule
-- Gradient statistics
 
 ---
 
 ## Troubleshooting
 
-### Issue: CUDA out of memory
+**"CUDA requested but not available, falling back to CPU."** Stop the run (CPU training takes hours) and fix the PyTorch install as in Step 1.
 
-**Solution:**
-```bash
-# Use smaller batch size
-python train.py --data_source tusimple --batch_size 16
+**`UnpicklingError: Weights only load failed` at the end of training.** PyTorch 2.6+ refuses to load checkpoints containing NumPy arrays by default. `training.py` loads them with `weights_only=False`; make sure you have the current version. The trained model is saved before this step, so nothing is lost.
 
-# Or use CPU (slower)
-python train.py --data_source tusimple --device cpu
-```
+**Windows data loading errors.** Use `--num_workers 0`.
 
-### Issue: Data loading errors on Windows
-
-**Solution:**
-```bash
-# Always use num_workers=0 on Windows
-python train.py --data_source tusimple --num_workers 0
-```
-
-### Issue: Different results than paper
-
-**Possible causes:**
-1. Different random seed (seed=42 was used)
-2. Different PyTorch/CUDA version
-3. Different data split
+**CARLA client can't connect.** The server must be running, and the `carla` Python package must match its version exactly.
 
 ---
 
-## Time Estimate
+## Time Estimate (GPU)
 
-| Step | Time (with GPU) | Time (CPU only) |
-|------|-----------------|-----------------|
-| Setup | 5 min | 5 min |
-| Data download | 15 min | 15 min |
-| Data processing | 5 min | 5 min |
-| Train real model | 18 min | 3-4 hours |
-| CARLA data | 15 min (download) | 15 min (download) |
-| Train CARLA model | 22 min | 3-5 hours |
-| Create hybrid | 5 min | 5 min |
-| Train hybrid | 17 min | 3-4 hours |
-| Comparison | 2 min | 5 min |
-| **Total** | **~1.5 hours** | **~10-14 hours** |
+| Step | Time |
+|---|---|
+| Environment | 5 min |
+| Download TuSimple | 10–30 min |
+| Process TuSimple | 5 min |
+| Real-only, per seed | ~20 min |
+| CARLA collection | 1–2 hours |
+| CARLA-only model | ~35 min |
+| 50/50 model | ~20–35 min |
+| Real + all CARLA model | 45–70 min |
+| Each evaluation run | a few min |
